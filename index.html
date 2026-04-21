@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chumbaka Student Update Tracker</title>
+    <meta name="description" content="Track monthly parent updates for students. Never miss an update again.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">📚</div>
+                <span class="logo-text">Chumbaka</span>
+            </div>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item active" data-page="dashboard">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Dashboard</span>
+            </li>
+            <li class="nav-item" data-page="tracker">
+                <span class="nav-icon">✅</span>
+                <span class="nav-label">Update Tracker</span>
+            </li>
+
+            <li class="nav-item" data-page="students">
+                <span class="nav-icon">👨‍🎓</span>
+                <span class="nav-label">Students</span>
+            </li>
+            <li class="nav-item" data-page="manage">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Manage Data</span>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="current-month-badge" id="currentMonthBadge"></div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Top Bar -->
+        <header class="topbar">
+            <button class="menu-toggle" id="menuToggle">☰</button>
+            <div class="topbar-title">
+                <h1 id="pageTitle">Dashboard</h1>
+                <p class="topbar-subtitle" id="pageSubtitle">Monthly update overview</p>
+            </div>
+            <div class="topbar-actions">
+                <div class="month-selector">
+                    <button class="month-nav-btn" id="prevMonth">‹</button>
+                    <span class="month-display" id="monthDisplay"></span>
+                    <button class="month-nav-btn" id="nextMonth">›</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page: Dashboard -->
+        <section class="page active" id="page-dashboard">
+            <div class="stats-grid">
+                <div class="stat-card stat-total">
+                    <div class="stat-icon">👨‍🎓</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statTotal">0</span>
+                        <span class="stat-label">Total Students</span>
+                    </div>
+                </div>
+                <div class="stat-card stat-updated">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statUpdated">0</span>
+                        <span class="stat-label">Updated</span>
+                    </div>
+                </div>
+                <div class="stat-card stat-pending">
+                    <div class="stat-icon">⏳</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statPending">0</span>
+                        <span class="stat-label">Pending</span>
+                    </div>
+                </div>
+                <div class="stat-card stat-sent">
+                    <div class="stat-icon">📨</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statSent">0</span>
+                        <span class="stat-label">Sent to Parents</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-section">
+                <div class="progress-header">
+                    <h2>Monthly Progress</h2>
+                    <span class="progress-percentage" id="progressPercentage">0%</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <p class="progress-hint" id="progressHint">Start updating students for this month</p>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="quick-actions">
+                <h2>Quick Actions</h2>
+                <div class="action-cards">
+                    <div class="action-card" id="actionGoTracker">
+                        <div class="action-icon">✅</div>
+                        <h3>Update Students</h3>
+                        <p>Mark students as updated for this month</p>
+                    </div>
+
+                    <div class="action-card" id="actionGoStudents">
+                        <div class="action-icon">👨‍🎓</div>
+                        <h3>Manage Students</h3>
+                        <p>Add or edit student information</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Students List -->
+            <div class="pending-section">
+                <h2>⚠️ Still Pending This Month</h2>
+                <div class="pending-list" id="pendingList">
+                    <p class="empty-state">Loading...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Page: Update Tracker -->
+        <section class="page" id="page-tracker">
+            <div class="tracker-filters">
+                <div class="filter-group">
+                    <label>Filter by Course:</label>
+                    <select id="trackerCourseFilter">
+                        <option value="all">All Courses</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Filter by Status:</label>
+                    <select id="trackerStatusFilter">
+                        <option value="all">All Status</option>
+                        <option value="pending">⏳ Pending</option>
+                        <option value="updated">✅ Updated</option>
+                        <option value="sent">📨 Sent</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="initMonthBtn">Initialize Month for All Students</button>
+            </div>
+            <div class="tracker-table-container">
+                <table class="tracker-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Course</th>
+                            <th>Progress</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trackerTableBody">
+                    </tbody>
+                </table>
+                <p class="empty-state" id="trackerEmpty" style="display:none;">No students found. Add students first!</p>
+            </div>
+        </section>
+
+
+
+        <!-- Page: Students -->
+        <section class="page" id="page-students">
+            <div class="page-header">
+                <h2>Student List</h2>
+                <button class="btn btn-primary" id="addStudentBtn">+ Add Student</button>
+            </div>
+            <!-- Add Student Form -->
+            <div class="add-form-container" id="addStudentForm" style="display:none;">
+                <div class="add-form">
+                    <h3 id="studentFormTitle">Add New Student</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="studentName">Name</label>
+                            <input type="text" id="studentName" placeholder="Student's full name">
+                        </div>
+                        <div class="form-group">
+                            <label for="studentCourse">Course</label>
+                            <select id="studentCourse">
+                                <option value="">Select course...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="studentProgress">Current Progress</label>
+                            <select id="studentProgress">
+                                <option value="">Select progress...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="studentNotes">Special Notes</label>
+                            <input type="text" id="studentNotes" placeholder="Any special notes...">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" id="cancelStudentBtn">Cancel</button>
+                        <button class="btn btn-primary" id="saveStudentBtn">Save Student</button>
+                    </div>
+                    <input type="hidden" id="editStudentId" value="">
+                </div>
+            </div>
+            <div class="students-grid" id="studentsGrid">
+                <p class="empty-state">Loading students...</p>
+            </div>
+        </section>
+
+        <!-- Page: Manage Data -->
+        <section class="page" id="page-manage">
+            <div class="manage-grid">
+                <div class="manage-card">
+                    <h3>📘 Courses</h3>
+                    <div class="manage-list" id="manageCoursesList"></div>
+                    <div class="manage-add">
+                        <input type="text" id="newCourseName" placeholder="New course name...">
+                        <button class="btn btn-sm btn-primary" id="addCourseBtn">Add</button>
+                    </div>
+                </div>
+                <div class="manage-card">
+                    <h3>📊 Progress Milestones</h3>
+                    <div class="manage-list" id="manageMilestonesList"></div>
+                    <div class="manage-add">
+                        <input type="text" id="newMilestoneName" placeholder="New milestone...">
+                        <button class="btn btn-sm btn-primary" id="addMilestoneBtn">Add</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay" style="display:none;">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle">Confirm</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="modalCancel">Cancel</button>
+                <button class="btn btn-danger" id="modalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
