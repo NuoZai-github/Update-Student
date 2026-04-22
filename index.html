@@ -15,8 +15,7 @@
     <nav class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="logo">
-                <div class="logo-icon">📚</div>
-                <span class="logo-text">Chumbaka</span>
+                <img src="animated-chumbaka-with-tag.gif" alt="Chumbaka" class="logo-img" />
             </div>
         </div>
         <ul class="nav-menu">
@@ -37,6 +36,10 @@
                 <span class="nav-icon">⚙️</span>
                 <span class="nav-label">Manage Data</span>
             </li>
+            <li class="nav-item" onclick="window.open('https://script.google.com/macros/s/AKfycbwvXLG3ru42tvp2Se-AS5E0ltkeTmeoAa0LoEPTHBBD76iMDhR92kKwg4jAvvZVoolU/exec', '_blank')" style="cursor: pointer;">
+                <span class="nav-icon">📝</span>
+                <span class="nav-label">Attendance System</span>
+            </li>
         </ul>
         <div class="sidebar-footer">
             <div class="current-month-badge" id="currentMonthBadge"></div>
@@ -52,12 +55,13 @@
                 <h1 id="pageTitle">Dashboard</h1>
                 <p class="topbar-subtitle" id="pageSubtitle">Monthly update overview</p>
             </div>
-            <div class="topbar-actions">
+            <div class="topbar-actions" style="display: flex; gap: 16px; align-items: center;">
                 <div class="month-selector">
                     <button class="month-nav-btn" id="prevMonth">‹</button>
                     <span class="month-display" id="monthDisplay"></span>
                     <button class="month-nav-btn" id="nextMonth">›</button>
                 </div>
+                <button class="btn btn-sm btn-secondary" id="logoutBtn">Logout</button>
             </div>
         </header>
 
@@ -83,13 +87,6 @@
                     <div class="stat-info">
                         <span class="stat-value" id="statPending">0</span>
                         <span class="stat-label">Pending</span>
-                    </div>
-                </div>
-                <div class="stat-card stat-sent">
-                    <div class="stat-icon">📨</div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="statSent">0</span>
-                        <span class="stat-label">Sent to Parents</span>
                     </div>
                 </div>
             </div>
@@ -148,7 +145,6 @@
                         <option value="all">All Status</option>
                         <option value="pending">⏳ Pending</option>
                         <option value="updated">✅ Updated</option>
-                        <option value="sent">📨 Sent</option>
                     </select>
                 </div>
                 <button class="btn btn-primary" id="initMonthBtn">Initialize Month for All Students</button>

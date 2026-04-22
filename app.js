@@ -1,3 +1,9 @@
+// ===== Auth Check =====
+const USER_ID = localStorage.getItem('cbk_user_id');
+if (!USER_ID) {
+    window.location.href = 'login.html';
+}
+
 // ===== Supabase Config =====
 const SUPABASE_URL = 'https://elcizzczflunmjuyfhvq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVsY2l6emN6Zmx1bm1qdXlmaHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NTA0MjgsImV4cCI6MjA5MTQyNjQyOH0.GpzoX8xkmMtFFur6HyZMhwvRrheHDn4gYCT1bo5QZ40';
@@ -21,9 +27,20 @@ function formatMonth(date) {
 // ===== Supabase API =====
 async function supaFetch(table, opts = {}) {
     const { method = 'GET', body, query = '' } = opts;
-    const url = `${SUPABASE_URL}/rest/v1/${table}${query}`;
+    
+    let fQuery = query;
+    if (fQuery.includes('?')) fQuery += `&user_id=eq.${USER_ID}`;
+    else fQuery = `?user_id=eq.${USER_ID}`;
+
+    let fBody = body;
+    if (body) {
+        if (Array.isArray(body)) fBody = body.map(b => ({ ...b, user_id: USER_ID }));
+        else fBody = { ...body, user_id: USER_ID };
+    }
+
+    const url = `${SUPABASE_URL}/rest/v1/${table}${fQuery}`;
     const options = { method, headers: { ...headers } };
-    if (body) options.body = JSON.stringify(body);
+    if (fBody) options.body = JSON.stringify(fBody);
     if (method === 'DELETE' || method === 'PATCH') options.headers['Prefer'] = 'return=representation';
     const res = await fetch(url, options);
     if (!res.ok) { const err = await res.text(); throw new Error(err); }
@@ -90,7 +107,7 @@ async function setUpdateStatus(studentId, newStatus) {
     }
     await loadMonthlyUpdates();
     renderAll();
-    const statusLabels = { pending: 'Pending', updated: 'Updated', sent: 'Sent to Parents' };
+    const statusLabels = { pending: 'Pending', updated: 'Updated' };
     showToast(`Status changed to "${statusLabels[newStatus]}"`, 'success');
 }
 
@@ -116,12 +133,10 @@ function renderMonthDisplay() {
 function renderStats() {
     const total = students.length;
     const updated = monthlyUpdates.filter(u => u.status === 'updated').length;
-    const sent = monthlyUpdates.filter(u => u.status === 'sent').length;
-    const pending = total - updated - sent;
+    const pending = total - updated;
     document.getElementById('statTotal').textContent = total;
     document.getElementById('statUpdated').textContent = updated;
     document.getElementById('statPending').textContent = Math.max(0, pending);
-    document.getElementById('statSent').textContent = sent;
 }
 
 // ===== Progress Bar =====
@@ -133,7 +148,7 @@ function renderProgressBar() {
         document.getElementById('progressHint').textContent = 'Add students to get started';
         return;
     }
-    const done = monthlyUpdates.filter(u => u.status === 'updated' || u.status === 'sent').length;
+    const done = monthlyUpdates.filter(u => u.status === 'updated').length;
     const pct = Math.round((done / total) * 100);
     document.getElementById('progressBar').style.width = pct + '%';
     document.getElementById('progressPercentage').textContent = pct + '%';
@@ -146,7 +161,7 @@ function renderProgressBar() {
 // ===== Pending List =====
 function renderPendingList() {
     const container = document.getElementById('pendingList');
-    const updatedIds = monthlyUpdates.filter(u => u.status === 'updated' || u.status === 'sent').map(u => u.student_id);
+    const updatedIds = monthlyUpdates.filter(u => u.status === 'updated').map(u => u.student_id);
     const pending = students.filter(s => !updatedIds.includes(s.id));
     if (pending.length === 0) {
         container.innerHTML = '<p class="empty-state">✅ All students updated! Great job!</p>';
@@ -191,19 +206,17 @@ function renderTracker() {
     tbody.innerHTML = finalRows.map(r => {
         const statusBadge = {
             pending: '<span class="status-badge status-pending">⏳ Pending</span>',
-            updated: '<span class="status-badge status-updated">✅ Updated</span>',
-            sent: '<span class="status-badge status-sent">📨 Sent</span>',
+            updated: '<span class="status-badge status-updated">✅ Updated</span>'
         }[r.updateStatus];
 
         return `<tr>
             <td><strong>${esc(r.name)}</strong></td>
             <td>${esc(r.course_name || '-')}</td>
             <td>${esc(r.current_progress || '-')}</td>
-            <td>${statusBadge}</td>
+            <td>${statusBadge || ''}</td>
             <td>
                 <div style="display:flex;gap:6px;">
                     ${r.updateStatus !== 'updated' ? `<button class="btn btn-sm btn-success" onclick="setUpdateStatus('${r.id}','updated')">✅</button>` : ''}
-                    ${r.updateStatus !== 'sent' ? `<button class="btn btn-sm btn-primary" onclick="setUpdateStatus('${r.id}','sent')" style="background:var(--sent)">📨</button>` : ''}
                     ${r.updateStatus !== 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="setUpdateStatus('${r.id}','pending')">↩️</button>` : ''}
                 </div>
             </td>
@@ -447,6 +460,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalCancel').addEventListener('click', hideModal);
     document.getElementById('modalConfirm').addEventListener('click', () => { if (modalCallback) modalCallback(); hideModal(); });
     document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) hideModal(); });
+
+    // Logout
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('cbk_user_id');
+            localStorage.removeItem('cbk_username');
+            window.location.href = 'login.html';
+        });
+        document.getElementById('pageTitle').textContent += ` - Welcome ${localStorage.getItem('cbk_username') || ''}`;
+    }
 
     // Load data
     loadAll();

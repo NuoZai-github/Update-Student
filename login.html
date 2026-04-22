@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Chumbaka Student Update Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            min-height: 100vh;
+        }
+        .login-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            text-align: center;
+            animation: fadeIn 0.4s ease;
+        }
+        .login-logo {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .login-logo img {
+            max-width: 150px;
+            height: auto;
+        }
+        .login-container h2 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .login-container p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+        }
+        .form-group-login {
+            text-align: left;
+            margin-bottom: 16px;
+        }
+        .form-group-login label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .form-group-login input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: #fff;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            transition: all var(--transition);
+        }
+        .form-group-login input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition);
+            margin-top: 10px;
+        }
+        .login-btn:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 4px 15px var(--accent-glow);
+            transform: translateY(-2px);
+        }
+        .login-error {
+            color: var(--danger);
+            font-size: 0.85rem;
+            margin-top: 12px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-logo">
+            <img src="animated-chumbaka-with-tag.gif" alt="Chumbaka" />
+        </div>
+        <h2>Welcome Back</h2>
+        <p>Please enter your credentials to log in.</p>
+        <form id="loginForm">
+            <div class="form-group-login">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username" required>
+            </div>
+            <div class="form-group-login">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password" required>
+            </div>
+            <p id="errorMsg" class="login-error">Invalid username or password.</p>
+            <button type="submit" class="login-btn" id="loginBtn">Login</button>
+        </form>
+    </div>
+
+    <!-- We will use the same supabase details from app.js but we can redefine the fetch here -->
+    <script>
+        const SUPABASE_URL = 'https://elcizzczflunmjuyfhvq.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVsY2l6emN6Zmx1bm1qdXlmaHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NTA0MjgsImV4cCI6MjA5MTQyNjQyOH0.GpzoX8xkmMtFFur6HyZMhwvRrheHDn4gYCT1bo5QZ40';
+        const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const err = document.getElementById('errorMsg');
+            
+            btn.textContent = 'Logging in...';
+            btn.disabled = true;
+            err.style.display = 'none';
+
+            try {
+                // Query users table
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/users?username=eq.${u}&password=eq.${p}&select=id`, { headers });
+                const data = await res.json();
+
+                if (data && data.length > 0) {
+                    const userId = data[0].id;
+                    // Save to local storage
+                    localStorage.setItem('cbk_user_id', userId);
+                    localStorage.setItem('cbk_username', u);
+                    // Redirect to dashboard
+                    window.location.href = 'index.html';
+                } else {
+                    err.textContent = 'Invalid username or password.';
+                    err.style.display = 'block';
+                    btn.textContent = 'Login';
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error(error);
+                err.textContent = 'Connection error. Please try again.';
+                err.style.display = 'block';
+                btn.textContent = 'Login';
+                btn.disabled = false;
+            }
+        });
+
+        // If already logged in, redirect
+        if (localStorage.getItem('cbk_user_id')) {
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>

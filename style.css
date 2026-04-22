@@ -58,9 +58,8 @@ body {
     box-shadow: 2px 0 10px rgba(0,0,0,0.02);
 }
 .sidebar-header { padding: 24px 20px; border-bottom: 1px solid var(--border); }
-.logo { display: flex; align-items: center; gap: 12px; }
-.logo-icon { font-size: 1.8rem; }
-.logo-text { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+.logo { display: flex; align-items: center; justify-content: center; }
+.logo-img { max-width: 100%; height: auto; display: block; }
 .nav-menu { list-style: none; padding: 12px 10px; flex: 1; }
 .nav-item {
     display: flex; align-items: center; gap: 12px;
@@ -109,7 +108,7 @@ body {
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ===== Stats Grid ===== */
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
 .stat-card {
     background: var(--bg-card); border-radius: var(--radius); padding: 20px;
     display: flex; align-items: center; gap: 16px;
@@ -121,13 +120,11 @@ body {
 .stat-total .stat-icon { background: var(--info-bg); }
 .stat-updated .stat-icon { background: var(--success-bg); }
 .stat-pending .stat-icon { background: var(--warning-bg); }
-.stat-sent .stat-icon { background: var(--sent-bg); }
 .stat-value { font-size: 1.8rem; font-weight: 800; display: block; }
 .stat-label { font-size: 0.8rem; color: var(--text-secondary); }
 .stat-total .stat-value { color: #2563eb; }
 .stat-updated .stat-value { color: #059669; }
 .stat-pending .stat-value { color: #d97706; }
-.stat-sent .stat-value { color: #db2777; }
 
 /* ===== Progress Section ===== */
 .progress-section {
