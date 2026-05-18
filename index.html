@@ -127,7 +127,12 @@
 
             <!-- Pending Students List -->
             <div class="pending-section">
-                <h2>⚠️ Still Pending This Month</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                    <h2>⚠️ Still Pending This Month</h2>
+                    <select id="dashboardTimeFilter" class="form-control" style="width: auto; padding: 6px 12px; font-size: 0.9rem;" onchange="renderPendingList()">
+                        <option value="all">All Class Times</option>
+                    </select>
+                </div>
                 <div class="pending-list" id="pendingList">
                     <p class="empty-state">Loading...</p>
                 </div>
@@ -151,15 +156,18 @@
                         <option value="updated">✅ Updated</option>
                     </select>
                 </div>
-                <button class="btn btn-primary" id="initMonthBtn">Initialize Month for All Students</button>
+                <button class="btn btn-primary" id="initMonthBtn">Initialize Month</button>
+                <button class="btn btn-success" id="batchUpdateBtn" style="display:none;">Mark Selected as Updated (0)</button>
             </div>
             <div class="tracker-table-container">
                 <table class="tracker-table">
                     <thead>
                         <tr>
+                            <th style="width: 40px;"><input type="checkbox" id="selectAll"></th>
                             <th>Student</th>
                             <th>Course</th>
-                            <th>Progress</th>
+                            <th>Class Time</th>
+                            <th>Progress Milestone</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -200,12 +208,18 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
+                            <label for="studentClassTime">Class Time</label>
+                            <input type="text" id="studentClassTime" placeholder="e.g. 2 Wed 7:30-8:30pm">
+                        </div>
+                        <div class="form-group">
                             <label for="studentProgress">Current Progress</label>
                             <select id="studentProgress">
                                 <option value="">Select progress...</option>
                             </select>
                         </div>
-                        <div class="form-group">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
                             <label for="studentNotes">Special Notes</label>
                             <input type="text" id="studentNotes" placeholder="Any special notes...">
                         </div>

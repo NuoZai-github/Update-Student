@@ -16,6 +16,7 @@ let courses = [];
 let milestones = [];
 let monthlyUpdates = [];
 let classLogs = [];
+let selectedStudents = new Set();
 
 // ===== Helpers =====
 function getMonthKey(date) {
@@ -69,6 +70,11 @@ async function loadAll() {
 async function loadMonthlyUpdates() {
     const mk = getMonthKey(currentMonth);
     monthlyUpdates = await supaFetch('monthly_updates', { query: `?month_year=eq.${mk}&select=*` });
+    
+    // Auto-init if no records found for current month
+    if (monthlyUpdates.length === 0 && students.length > 0) {
+        await initializeMonth(true);
+    }
 }
 
 async function loadClassLogs() {
@@ -81,12 +87,12 @@ async function loadClassLogs() {
 }
 
 // ===== Initialize Month =====
-async function initializeMonth() {
+async function initializeMonth(silent = false) {
     const mk = getMonthKey(currentMonth);
     const existing = monthlyUpdates.map(u => u.student_id);
     const toCreate = students.filter(s => !existing.includes(s.id));
     if (toCreate.length === 0) {
-        showToast('All students already initialized for this month', 'info');
+        if (!silent) showToast('All students already initialized for this month', 'info');
         return;
     }
     try {
@@ -173,17 +179,29 @@ function renderProgressBar() {
 // ===== Pending List =====
 function renderPendingList() {
     const container = document.getElementById('pendingList');
+    const timeFilterEl = document.getElementById('dashboardTimeFilter');
+    const timeFilter = timeFilterEl ? timeFilterEl.value : 'all';
+
     const updatedIds = monthlyUpdates.filter(u => u.status === 'updated').map(u => u.student_id);
-    const pending = students.filter(s => !updatedIds.includes(s.id));
+    let pending = students.filter(s => !updatedIds.includes(s.id));
+    
+    if (timeFilter !== 'all') {
+        pending = pending.filter(s => s.class_time === timeFilter);
+    }
+    
     if (pending.length === 0) {
-        container.innerHTML = '<p class="empty-state">✅ All students updated! Great job!</p>';
+        if (students.filter(s => !updatedIds.includes(s.id)).length === 0) {
+            container.innerHTML = '<p class="empty-state">✅ All students updated! Great job!</p>';
+        } else {
+            container.innerHTML = '<p class="empty-state">✅ No pending students for this class time.</p>';
+        }
         return;
     }
     container.innerHTML = pending.map(s => `
         <div class="pending-item">
             <div class="pending-item-info">
                 <span class="pending-item-name">${esc(s.name)}</span>
-                <span class="pending-item-course">${esc(s.course_name || 'No course')}</span>
+                <span class="pending-item-course">${esc(s.course_name || 'No course')} | 🕒 ${esc(s.class_time || 'No timeslot')}</span>
             </div>
             <button class="btn btn-sm btn-success" onclick="setUpdateStatus('${s.id}','updated')">✅ Mark Updated</button>
         </div>
@@ -195,6 +213,13 @@ function renderTracker() {
     const tbody = document.getElementById('trackerTableBody');
     const courseFilter = document.getElementById('trackerCourseFilter').value;
     const statusFilter = document.getElementById('trackerStatusFilter').value;
+
+    // Reset selection if this is a fresh render from filter change
+    // (In a more complex app we might keep them, but here it's safer to reset)
+    if (selectedStudents.size > 0) {
+        selectedStudents.clear();
+        document.getElementById('selectAll').checked = false;
+    }
 
     let filtered = [...students];
     if (courseFilter !== 'all') filtered = filtered.filter(s => s.course_name === courseFilter);
@@ -221,20 +246,131 @@ function renderTracker() {
             updated: '<span class="status-badge status-updated">✅ Updated</span>'
         }[r.updateStatus];
 
+        const isChecked = selectedStudents.has(r.id);
+        
+        // Inline milestone dropdown
+        const milestoneOptions = milestones.map(m => 
+            `<option value="${esc(m.label)}" ${r.current_progress === m.label ? 'selected' : ''}>${esc(m.label)}</option>`
+        ).join('');
+
         return `<tr>
+            <td><input type="checkbox" class="student-checkbox" data-id="${r.id}" ${isChecked ? 'checked' : ''}></td>
             <td><strong>${esc(r.name)}</strong></td>
             <td>${esc(r.course_name || '-')}</td>
-            <td>${esc(r.current_progress || '-')}</td>
+            <td><span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">🕒 ${esc(r.class_time || '-')}</span></td>
+            <td>
+                <select class="inline-edit-select" onchange="quickUpdateMilestone('${r.id}', this.value)">
+                    <option value="">Select...</option>
+                    ${milestoneOptions}
+                </select>
+            </td>
             <td>${statusBadge || ''}</td>
             <td>
                 <div style="display:flex;gap:6px;">
-                    <button class="btn btn-sm btn-primary" title="Quick log 1h class" onclick="quickLogClass('${r.id}')">⏱️ +1h</button>
+                    <button class="btn btn-sm btn-info" onclick="copyUpdateMessage('${r.id}')" title="Copy Parent Message">📋</button>
                     ${r.updateStatus !== 'updated' ? `<button class="btn btn-sm btn-success" onclick="setUpdateStatus('${r.id}','updated')">✅</button>` : ''}
                     ${r.updateStatus !== 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="setUpdateStatus('${r.id}','pending')">↩️</button>` : ''}
                 </div>
             </td>
         </tr>`;
     }).join('');
+
+    updateBatchUI();
+}
+
+// ===== Quick Milestone Update =====
+async function quickUpdateMilestone(studentId, newMilestone) {
+    try {
+        await supaFetch('students', {
+            method: 'PATCH',
+            query: `?id=eq.${studentId}`,
+            body: { current_progress: newMilestone || null }
+        });
+        // Update local state to avoid full reload if possible, but loadAll is safer
+        const s = students.find(st => st.id === studentId);
+        if (s) s.current_progress = newMilestone;
+        showToast('Milestone updated!', 'success');
+        renderAll();
+    } catch (e) {
+        showToast('Failed to update milestone: ' + e.message, 'error');
+    }
+}
+
+// ===== Copy Parent Message =====
+function copyUpdateMessage(studentId) {
+    const s = students.find(st => st.id === studentId);
+    if (!s) return;
+    
+    const milestone = s.current_progress || 'their current module';
+    const course = s.course_name || 'their course';
+    const notes = s.special_notes ? `\n\nNotes: ${s.special_notes}` : '';
+    
+    const message = `Hi Parent! This is a monthly update for ${s.name}. 
+
+${s.name} is currently working on "${milestone}" in the ${course} course. They have been making steady progress and showing great interest! 🌟${notes}
+
+Keep up the great work, ${s.name}!`;
+
+    navigator.clipboard.writeText(message).then(() => {
+        showToast('Parent message copied to clipboard!', 'success');
+        // Also mark as updated if it's currently pending
+        const record = monthlyUpdates.find(u => u.student_id === studentId);
+        if (record && record.status === 'pending') {
+            setUpdateStatus(studentId, 'updated');
+        }
+    });
+}
+
+// ===== Batch UI =====
+function updateBatchUI() {
+    const btn = document.getElementById('batchUpdateBtn');
+    const count = selectedStudents.size;
+    if (count > 0) {
+        btn.style.display = 'inline-block';
+        btn.textContent = `Mark Selected as Updated (${count})`;
+    } else {
+        btn.style.display = 'none';
+    }
+}
+
+async function handleBatchUpdate() {
+    if (selectedStudents.size === 0) return;
+    const mk = getMonthKey(currentMonth);
+    const ids = Array.from(selectedStudents);
+    
+    try {
+        // Find existing records to update and new ones to create
+        const existing = monthlyUpdates.filter(u => ids.includes(u.student_id));
+        const existingIds = existing.map(u => u.student_id);
+        const toCreateIds = ids.filter(id => !existingIds.includes(id));
+        
+        const promises = [];
+        
+        // Update existing
+        if (existing.length > 0) {
+            const queryIds = existing.map(u => u.id).join(',');
+            promises.push(supaFetch('monthly_updates', {
+                method: 'PATCH',
+                query: `?id=in.(${queryIds})`,
+                body: { status: 'updated', updated_at: new Date().toISOString() }
+            }));
+        }
+        
+        // Create new
+        if (toCreateIds.length > 0) {
+            const body = toCreateIds.map(sid => ({ student_id: sid, month_year: mk, status: 'updated', updated_at: new Date().toISOString() }));
+            promises.push(supaFetch('monthly_updates', { method: 'POST', body }));
+        }
+        
+        await Promise.all(promises);
+        showToast(`Successfully updated ${ids.length} students!`, 'success');
+        selectedStudents.clear();
+        document.getElementById('selectAll').checked = false;
+        await loadMonthlyUpdates();
+        renderAll();
+    } catch (e) {
+        showToast('Batch update error: ' + e.message, 'error');
+    }
 }
 
 // ===== Wages / Class Records =====
@@ -339,12 +475,12 @@ function renderStudents() {
             <div class="student-card-header">
                 <span class="student-card-name">${esc(s.name)}</span>
                 <div class="student-card-actions">
-                    <button class="btn btn-sm btn-primary" title="Quick log 1h class" onclick="quickLogClass('${s.id}')">⏱️ +1h</button>
                     <button class="btn btn-sm btn-secondary" onclick="editStudent('${s.id}')">✏️</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteStudent('${s.id}','${esc(s.name)}')">🗑️</button>
                 </div>
             </div>
             <div class="student-card-detail">📘 ${esc(s.course_name || 'No course')}</div>
+            <div class="student-card-detail">🕒 ${esc(s.class_time || 'No timeslot')}</div>
             <div class="student-card-detail">📊 ${esc(s.current_progress || 'Not set')}</div>
             ${s.special_notes ? `<div class="student-card-detail">📝 ${esc(s.special_notes)}</div>` : ''}
         </div>
@@ -360,6 +496,7 @@ function hideStudentForm() {
     document.getElementById('addStudentForm').style.display = 'none';
     document.getElementById('studentName').value = '';
     document.getElementById('studentCourse').value = '';
+    document.getElementById('studentClassTime').value = '';
     document.getElementById('studentProgress').value = '';
     document.getElementById('studentNotes').value = '';
     document.getElementById('editStudentId').value = '';
@@ -369,11 +506,12 @@ async function saveStudent() {
     const id = document.getElementById('editStudentId').value;
     const name = document.getElementById('studentName').value.trim();
     const course_name = document.getElementById('studentCourse').value;
+    const class_time = document.getElementById('studentClassTime').value.trim();
     const current_progress = document.getElementById('studentProgress').value;
     const special_notes = document.getElementById('studentNotes').value.trim();
     if (!name) { showToast('Please enter a student name', 'error'); return; }
     try {
-        const body = { name, course_name: course_name || null, current_progress: current_progress || null, special_notes: special_notes || null };
+        const body = { name, course_name: course_name || null, class_time: class_time || null, current_progress: current_progress || null, special_notes: special_notes || null };
         if (id) {
             await supaFetch('students', { method: 'PATCH', query: `?id=eq.${id}`, body });
             showToast('Student updated!', 'success');
@@ -394,6 +532,7 @@ function editStudent(id) {
     document.getElementById('editStudentId').value = id;
     document.getElementById('studentName').value = s.name;
     document.getElementById('studentCourse').value = s.course_name || '';
+    document.getElementById('studentClassTime').value = s.class_time || '';
     document.getElementById('studentProgress').value = s.current_progress || '';
     document.getElementById('studentNotes').value = s.special_notes || '';
     showStudentForm(true);
@@ -476,7 +615,16 @@ function populateDropdowns() {
     const savedTcf = tcf.value;
     const uniqueCourses = [...new Set(students.map(s => s.course_name).filter(Boolean))];
     tcf.innerHTML = '<option value="all">All Courses</option>' + uniqueCourses.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
-    tcf.value = savedTcf;
+    tcf.value = savedTcf || 'all';
+
+    // Dashboard time filter
+    const dtf = document.getElementById('dashboardTimeFilter');
+    if (dtf) {
+        const savedDtf = dtf.value;
+        const uniqueTimes = [...new Set(students.map(s => s.class_time).filter(Boolean))].sort();
+        dtf.innerHTML = '<option value="all">All Class Times</option>' + uniqueTimes.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+        dtf.value = savedDtf || 'all';
+    }
 
     // Log Class student filter
     const lcf = document.getElementById('logStudent');
@@ -629,6 +777,7 @@ function parsePastedStudents(text) {
                 const name = prevLine.trim();
                 const cols = lines[i].split('\t');
                 const course = cols[0].trim();
+                const class_time = cols.length > 2 ? cols[2].trim() : '';
                 const mentor = cols.length > 3 ? cols[3].trim().toLowerCase() : '';
                 
                 // CRITICAL: Only include students where the mentor matches the logged-in user
@@ -640,7 +789,7 @@ function parsePastedStudents(text) {
                     const key = name.toLowerCase();
                     if (!seen.has(key)) {
                         seen.add(key);
-                        parsed.push({ name, course });
+                        parsed.push({ name, course, class_time });
                     }
                 }
             }
@@ -655,7 +804,7 @@ function parsePastedStudents(text) {
     // Strategy 2: Tab-separated standard table format
     const hasTabs = lines.some(line => line.includes('\t'));
     if (hasTabs) {
-        let nameCol = 0, courseCol = 1, mentorCol = -1; 
+        let nameCol = 0, courseCol = 1, mentorCol = -1, timeCol = -1; 
         const headerIdx = lines.findIndex(l => l.toLowerCase().includes('name') || l.toLowerCase().includes('student'));
         
         if (headerIdx !== -1) {
@@ -663,9 +812,11 @@ function parsePastedStudents(text) {
             const nIdx = cols.findIndex(c => c.includes('name') || c.includes('student'));
             const cIdx = cols.findIndex(c => c.includes('course') || c.includes('class') || c.includes('level') || c.includes('subject'));
             const mIdx = cols.findIndex(c => c.includes('mentor') || c.includes('teacher') || c.includes('tutor'));
+            const tIdx = cols.findIndex(c => c.includes('time') || c.includes('slot') || c.includes('schedule') || c.includes('day'));
             if (nIdx !== -1) nameCol = nIdx;
             if (cIdx !== -1) courseCol = cIdx;
             if (mIdx !== -1) mentorCol = mIdx;
+            if (tIdx !== -1) timeCol = tIdx;
         }
 
         for (let i = 0; i < lines.length; i++) {
@@ -674,17 +825,18 @@ function parsePastedStudents(text) {
             if (cols.length >= 2) {
                 const name = cols[nameCol] ? cols[nameCol].trim() : '';
                 const course = cols[courseCol] ? cols[courseCol].trim() : '';
+                const class_time = (timeCol !== -1 && cols[timeCol]) ? cols[timeCol].trim() : '';
                 const mentor = (mentorCol !== -1 && cols[mentorCol]) ? cols[mentorCol].trim().toLowerCase() : '';
                 
                 if (mentor && currentUser && !mentor.includes(currentUser) && !currentUser.includes(mentor)) {
                     continue;
                 }
                 
-                if (name && name.length > 1 && !name.toLowerCase().includes('report abuse') && !name.toLowerCase().includes('learn more')) {
+                if (name && name.length > 1 && isNaN(name) && !name.toLowerCase().includes('report abuse') && !name.toLowerCase().includes('learn more')) {
                     const key = name.toLowerCase();
                     if (!seen.has(key)) {
                         seen.add(key);
-                        parsed.push({ name, course });
+                        parsed.push({ name, course, class_time });
                     }
                 }
             }
@@ -707,11 +859,11 @@ function parsePastedStudents(text) {
                 name = line.trim();
             }
             
-            if (name && name.length > 1) {
+            if (name && name.length > 1 && isNaN(name)) {
                 const key = name.toLowerCase();
                 if (!seen.has(key)) {
                     seen.add(key);
-                    parsed.push({ name, course });
+                    parsed.push({ name, course, class_time: '' });
                 }
             }
         }
@@ -749,7 +901,8 @@ function processSyncData(sheetStudents) {
         if (!currentStudentsMap.has(key)) {
             additions.push({
                 name: s.name.trim(),
-                course_name: s.course ? s.course.trim() : null
+                course_name: s.course ? s.course.trim() : null,
+                class_time: s.class_time ? s.class_time.trim() : null
             });
         }
     });
@@ -762,33 +915,30 @@ function processSyncData(sheetStudents) {
             const existing = currentStudentsMap.get(key);
             const sheetCourse = s.course ? s.course.trim() : '';
             const dbCourse = existing.course_name ? existing.course_name.trim() : '';
-            if (sheetCourse !== dbCourse) {
+            
+            const sheetTime = s.class_time ? s.class_time.trim() : '';
+            const dbTime = existing.class_time ? existing.class_time.trim() : '';
+            
+            if (sheetCourse !== dbCourse || (sheetTime && sheetTime !== dbTime)) {
                 updates.push({
                     id: existing.id,
                     name: existing.name,
                     oldCourse: dbCourse || 'No course',
-                    newCourse: sheetCourse || null
+                    newCourse: sheetCourse || null,
+                    oldTime: dbTime || 'No timeslot',
+                    newTime: sheetTime || null
                 });
             }
         }
     });
 
-    // 3. Deletions
-    const deletions = [];
-    students.forEach(s => {
-        const key = s.name.trim().toLowerCase();
-        if (!sheetStudentsMap.has(key)) {
-            deletions.push({
-                id: s.id,
-                name: s.name,
-                course_name: s.course_name
-            });
-        }
-    });
+    // 3. Deletions (REMOVED)
+    // We explicitly avoid deleting students not in the current paste, 
+    // because the paste might just be for one specific class!
+    
+    pendingSyncActions = { additions, updates, deletions: [] };
 
-    pendingSyncActions = { additions, updates, deletions };
-
-    if (additions.length === 0 && updates.length === 0 && deletions.length === 0) {
+    if (additions.length === 0 && updates.length === 0) {
         body.innerHTML = `
             <div style="text-align: center; padding: 40px 0;">
                 <span style="font-size: 3rem; display: block; margin-bottom: 16px;">✨</span>
@@ -819,7 +969,7 @@ function processSyncData(sheetStudents) {
                             <input type="checkbox" class="sync-item-checkbox" data-type="add" data-index="${idx}" checked>
                             <div class="sync-item-info">
                                 <span class="sync-item-name">${esc(item.name)}</span>
-                                <span class="sync-item-details">Course: <strong>${esc(item.course_name || 'None')}</strong></span>
+                                <span class="sync-item-details">Course: <strong>${esc(item.course_name || 'None')}</strong> | Time: <strong>${esc(item.class_time || 'None')}</strong></span>
                             </div>
                         </div>
                         <span class="sync-badge sync-badge-add">+ Add</span>
@@ -833,47 +983,30 @@ function processSyncData(sheetStudents) {
     if (updates.length > 0) {
         html += `
             <div class="sync-section-title" style="margin-top: 24px;">
-                <span>✏️</span> Course Updates (${updates.length})
+                <span>✏️</span> Student Updates (${updates.length})
             </div>
             <div class="sync-list">
-                ${updates.map((item, idx) => `
-                    <div class="sync-item">
-                        <div class="sync-item-left">
-                            <input type="checkbox" class="sync-item-checkbox" data-type="update" data-index="${idx}" checked>
-                            <div class="sync-item-info">
-                                <span class="sync-item-name">${esc(item.name)}</span>
-                                <span class="sync-item-details">Course change: <span style="text-decoration: line-through; color: var(--text-muted);">${esc(item.oldCourse)}</span> ➔ <strong>${esc(item.newCourse || 'None')}</strong></span>
+                ${updates.map((item, idx) => {
+                    let detailsHTML = '';
+                    if (item.oldCourse !== (item.newCourse || '')) {
+                        detailsHTML += `Course: <span style="text-decoration: line-through; color: var(--text-muted);">${esc(item.oldCourse)}</span> ➔ <strong>${esc(item.newCourse || 'None')}</strong><br>`;
+                    }
+                    if (item.oldTime !== (item.newTime || '') && item.newTime) {
+                        detailsHTML += `Time: <span style="text-decoration: line-through; color: var(--text-muted);">${esc(item.oldTime)}</span> ➔ <strong>${esc(item.newTime)}</strong>`;
+                    }
+                    return `
+                        <div class="sync-item">
+                            <div class="sync-item-left">
+                                <input type="checkbox" class="sync-item-checkbox" data-type="update" data-index="${idx}" checked>
+                                <div class="sync-item-info">
+                                    <span class="sync-item-name">${esc(item.name)}</span>
+                                    <span class="sync-item-details" style="display:block; margin-top:4px;">${detailsHTML}</span>
+                                </div>
                             </div>
+                            <span class="sync-badge sync-badge-update">Update</span>
                         </div>
-                        <span class="sync-badge sync-badge-update">Update</span>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    }
-
-    // Render Deletions Section
-    if (deletions.length > 0) {
-        html += `
-            <div class="sync-section-title" style="margin-top: 24px; color: var(--danger);">
-                <span>🗑️</span> Missing from Sheets (${deletions.length})
-            </div>
-            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px; font-style: italic;">
-                These students exist in Supabase but are missing from Google Sheets. Checking these will delete them. Unchecked is recommended unless you are sure.
-            </p>
-            <div class="sync-list">
-                ${deletions.map((item, idx) => `
-                    <div class="sync-item" style="border-left: 3px solid var(--danger);">
-                        <div class="sync-item-left">
-                            <input type="checkbox" class="sync-item-checkbox" data-type="delete" data-index="${idx}">
-                            <div class="sync-item-info">
-                                <span class="sync-item-name">${esc(item.name)}</span>
-                                <span class="sync-item-details">Course: <strong>${esc(item.course_name || 'None')}</strong> (History will be lost!)</span>
-                            </div>
-                        </div>
-                        <span class="sync-badge sync-badge-delete">- Delete</span>
-                    </div>
-                `).join('')}
+                    `;
+                }).join('')}
             </div>
         `;
     }
@@ -895,7 +1028,6 @@ async function executeSync() {
     const checkboxes = document.querySelectorAll('.sync-item-checkbox');
     const checkedAdditions = [];
     const checkedUpdates = [];
-    const checkedDeletions = [];
 
     checkboxes.forEach(cb => {
         if (!cb.checked) return;
@@ -904,10 +1036,9 @@ async function executeSync() {
 
         if (type === 'add') checkedAdditions.push(pendingSyncActions.additions[idx]);
         else if (type === 'update') checkedUpdates.push(pendingSyncActions.updates[idx]);
-        else if (type === 'delete') checkedDeletions.push(pendingSyncActions.deletions[idx]);
     });
 
-    if (checkedAdditions.length === 0 && checkedUpdates.length === 0 && checkedDeletions.length === 0) {
+    if (checkedAdditions.length === 0 && checkedUpdates.length === 0) {
         showToast('No changes selected to sync.', 'info');
         confirmBtn.disabled = false;
         confirmBtn.textContent = 'Sync Selected Changes';
@@ -931,31 +1062,28 @@ async function executeSync() {
                 method: 'POST',
                 body: {
                     name: item.name,
-                    course_name: item.course_name
+                    course_name: item.course_name,
+                    class_time: item.class_time
                 }
             });
         }
 
         // 3. Perform updates
         for (const item of checkedUpdates) {
-            await supaFetch('students', {
-                method: 'PATCH',
-                query: `?id=eq.${item.id}`,
-                body: {
-                    course_name: item.newCourse
-                }
-            });
+            const bodyObj = {};
+            if (item.newCourse) bodyObj.course_name = item.newCourse;
+            if (item.newTime) bodyObj.class_time = item.newTime;
+            
+            if (Object.keys(bodyObj).length > 0) {
+                await supaFetch('students', {
+                    method: 'PATCH',
+                    query: `?id=eq.${item.id}`,
+                    body: bodyObj
+                });
+            }
         }
 
-        // 4. Perform deletions
-        for (const item of checkedDeletions) {
-            await supaFetch('students', {
-                method: 'DELETE',
-                query: `?id=eq.${item.id}`
-            });
-        }
-
-        showToast(`Successfully synchronized! Added ${checkedAdditions.length}, Updated ${checkedUpdates.length}, Deleted ${checkedDeletions.length} students.`, 'success');
+        showToast(`Successfully synchronized! Added ${checkedAdditions.length}, Updated ${checkedUpdates.length} students.`, 'success');
         hideSyncModal();
         await loadAll();
     } catch (e) {
@@ -1012,6 +1140,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manage data
     document.getElementById('addCourseBtn').addEventListener('click', addCourse);
     document.getElementById('addMilestoneBtn').addEventListener('click', addMilestone);
+
+    // Batch and Select All
+    document.getElementById('selectAll').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        const visibleCheckboxes = document.querySelectorAll('.student-checkbox');
+        visibleCheckboxes.forEach(cb => {
+            cb.checked = checked;
+            const id = cb.dataset.id;
+            if (checked) selectedStudents.add(id);
+            else selectedStudents.delete(id);
+        });
+        updateBatchUI();
+    });
+
+    document.getElementById('trackerTableBody').addEventListener('click', (e) => {
+        if (e.target.classList.contains('student-checkbox')) {
+            const id = e.target.dataset.id;
+            if (e.target.checked) selectedStudents.add(id);
+            else {
+                selectedStudents.delete(id);
+                document.getElementById('selectAll').checked = false;
+            }
+            updateBatchUI();
+        }
+    });
+
+    document.getElementById('batchUpdateBtn').addEventListener('click', handleBatchUpdate);
 
     // Modal
     document.getElementById('modalClose').addEventListener('click', hideModal);

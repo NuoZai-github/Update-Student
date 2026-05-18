@@ -256,8 +256,9 @@ textarea { resize: vertical; }
     padding: 20px; transition: all var(--transition); box-shadow: 0 2px 8px rgba(0,0,0,0.02);
 }
 .student-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
-.student-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-.student-card-name { font-weight: 700; font-size: 1rem; color: var(--text-primary); }
+.student-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 12px; }
+.student-card-name { font-weight: 700; font-size: 1rem; color: var(--text-primary); word-break: break-word; line-height: 1.3; }
+.student-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .student-card-detail { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; }
 
 /* ===== Manage Data ===== */
@@ -312,6 +313,7 @@ textarea { resize: vertical; }
     .main-content { margin-left: 0; }
     .menu-toggle { display: block; }
 }
+
 
 /* ===== Sync Feature Styling ===== */
 .sync-spinner {
@@ -446,4 +448,59 @@ textarea { resize: vertical; }
     align-items: center;
     gap: 6px;
     text-align: left;
+}
+
+/* ===== Inline Editing & Efficiency ===== */
+.inline-edit-select {
+    width: auto;
+    min-width: 140px;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    height: 32px;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.inline-edit-select:hover {
+    background: var(--bg-primary) !important;
+    border-color: var(--border) !important;
+}
+
+.inline-edit-select:focus {
+    background: #fff !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-glow) !important;
+}
+
+.student-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    display: block;
+    margin: 0 auto;
+}
+
+.btn-info {
+    background: var(--info);
+    color: #fff;
+}
+
+.btn-info:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 12px var(--info-bg);
+}
+
+/* Responsive adjustments for new features */
+@media (max-width: 768px) {
+    .tracker-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .inline-edit-select {
+        min-width: 100px;
+    }
 }
