@@ -421,6 +421,441 @@ function esc(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ===== Student Sync Feature =====
+function showSyncModal() {
+    document.getElementById('syncModalOverlay').style.display = 'flex';
+    const body = document.getElementById('syncModalBody');
+    body.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 0;">
+            <div class="sync-spinner"></div>
+            <p style="font-weight: 500; color: var(--text-secondary);">Connecting to Google Sheets Attendance System...</p>
+        </div>
+    `;
+    document.getElementById('syncModalFooter').style.display = 'none';
+    
+    // Fetch data
+    fetch('https://script.google.com/macros/s/AKfycbwvXLG3ru42tvp2Se-AS5E0ltkeTmeoAa0LoEPTHBBD76iMDhR92kKwg4jAvvZVoolU/exec?action=getStudents')
+        .then(res => {
+            if (!res.ok) throw new Error('Network response was not ok');
+            return res.text();
+        })
+        .then(text => {
+            // Determine if the response is HTML or JSON
+            if (text.trim().startsWith('<') || text.includes('doctype') || text.includes('DOCTYPE')) {
+                // It is HTML, meaning they need to update their doGet() function
+                renderSyncInstructions();
+            } else {
+                // It is JSON, parse and match
+                try {
+                    const sheetStudents = JSON.parse(text);
+                    if (Array.isArray(sheetStudents)) {
+                        processSyncData(sheetStudents);
+                    } else {
+                        throw new Error('Response is not a valid JSON array');
+                    }
+                } catch (e) {
+                    renderSyncInstructions();
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Sync fetch error:', err);
+            renderSyncInstructions(); // Fallback to instructions if fetch fails or is CORS blocked
+        });
+}
+
+function hideSyncModal() {
+    document.getElementById('syncModalOverlay').style.display = 'none';
+}
+
+function renderSyncInstructions() {
+    const body = document.getElementById('syncModalBody');
+    body.innerHTML = `
+        <div class="sync-instruction-card" style="padding: 16px;">
+            <p style="margin-bottom: 12px; font-weight: 700; color: var(--primary); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                📋 Semi-Automatic Sync (Paste Data)
+            </p>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;">
+                Since you don't have permission to modify the Google Sheet's code, we can sync by pasting the data directly!
+            </p>
+            <ol style="font-size: 0.85rem; color: var(--text-secondary); margin-left: 20px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5;">
+                <li>Open the <a href="https://script.google.com/macros/s/AKfycbwvXLG3ru42tvp2Se-AS5E0ltkeTmeoAa0LoEPTHBBD76iMDhR92kKwg4jAvvZVoolU/exec" target="_blank" style="color: var(--primary); font-weight: bold; text-decoration: underline;">Google Attendance Webpage</a>.</li>
+                <li>Press <strong>Ctrl + A</strong> (or Cmd + A) to highlight everything, then <strong>Ctrl + C</strong> to copy.</li>
+                <li>Click inside the box below and press <strong>Ctrl + V</strong> to paste, then click Analyze.</li>
+            </ol>
+            <textarea id="syncPasteArea" style="width: 100%; height: 140px; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-family: monospace; font-size: 0.85rem; resize: vertical; margin-bottom: 16px;" placeholder="Paste the copied attendance data here..."></textarea>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button class="btn btn-primary" id="analyzePasteBtn" style="padding: 8px 16px;">🔍 Analyze Data</button>
+            </div>
+        </div>
+    `;
+    document.getElementById('syncModalFooter').style.display = 'none';
+
+    document.getElementById('analyzePasteBtn').addEventListener('click', () => {
+        const text = document.getElementById('syncPasteArea').value;
+        const sheetStudents = parsePastedStudents(text);
+        if (sheetStudents.length === 0) {
+            showToast('No valid students found. Please make sure you copied the table correctly.', 'error');
+            return;
+        }
+        processSyncData(sheetStudents);
+    });
+}
+
+function parsePastedStudents(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const parsed = [];
+    const seen = new Set();
+    const currentUser = (localStorage.getItem('cbk_username') || '').toLowerCase().trim();
+    
+    // Strategy 1: Multi-line block format (e.g. copied from div-based table)
+    // Format: Line 1 = Name, Line 2 = Course\tNumber\tTimeslot\tMentor...
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].includes('\t')) {
+            const prevLine = lines[i-1];
+            // If the previous line has no tabs, is not purely numbers, and is not a known junk line
+            if (!prevLine.includes('\t') && prevLine.toLowerCase() !== 'attend' && isNaN(prevLine)) {
+                const name = prevLine.trim();
+                const cols = lines[i].split('\t');
+                const course = cols[0].trim();
+                const mentor = cols.length > 3 ? cols[3].trim().toLowerCase() : '';
+                
+                // CRITICAL: Only include students where the mentor matches the logged-in user
+                if (mentor && currentUser && !mentor.includes(currentUser) && !currentUser.includes(mentor)) {
+                    continue;
+                }
+                
+                if (name.length > 1 && !name.toLowerCase().includes('report abuse') && !name.toLowerCase().includes('learn more') && !name.toLowerCase().includes('attendance tracker')) {
+                    const key = name.toLowerCase();
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        parsed.push({ name, course });
+                    }
+                }
+            }
+        }
+    }
+    
+    // If Strategy 1 succeeded, it means the pasted data perfectly matches the block format
+    if (parsed.length > 0) {
+        return parsed;
+    }
+    
+    // Strategy 2: Tab-separated standard table format
+    const hasTabs = lines.some(line => line.includes('\t'));
+    if (hasTabs) {
+        let nameCol = 0, courseCol = 1, mentorCol = -1; 
+        const headerIdx = lines.findIndex(l => l.toLowerCase().includes('name') || l.toLowerCase().includes('student'));
+        
+        if (headerIdx !== -1) {
+            const cols = lines[headerIdx].toLowerCase().split('\t');
+            const nIdx = cols.findIndex(c => c.includes('name') || c.includes('student'));
+            const cIdx = cols.findIndex(c => c.includes('course') || c.includes('class') || c.includes('level') || c.includes('subject'));
+            const mIdx = cols.findIndex(c => c.includes('mentor') || c.includes('teacher') || c.includes('tutor'));
+            if (nIdx !== -1) nameCol = nIdx;
+            if (cIdx !== -1) courseCol = cIdx;
+            if (mIdx !== -1) mentorCol = mIdx;
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            if (i === headerIdx) continue;
+            const cols = lines[i].split('\t');
+            if (cols.length >= 2) {
+                const name = cols[nameCol] ? cols[nameCol].trim() : '';
+                const course = cols[courseCol] ? cols[courseCol].trim() : '';
+                const mentor = (mentorCol !== -1 && cols[mentorCol]) ? cols[mentorCol].trim().toLowerCase() : '';
+                
+                if (mentor && currentUser && !mentor.includes(currentUser) && !currentUser.includes(mentor)) {
+                    continue;
+                }
+                
+                if (name && name.length > 1 && !name.toLowerCase().includes('report abuse') && !name.toLowerCase().includes('learn more')) {
+                    const key = name.toLowerCase();
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        parsed.push({ name, course });
+                    }
+                }
+            }
+        }
+    } else {
+        // Strategy 3: Space-separated or unstructured lines (No mentor check possible here)
+        for (const line of lines) {
+            const lLow = line.toLowerCase();
+            if (lLow.includes('report abuse') || lLow.includes('learn more') || lLow.includes('attendance tracker') || lLow.includes('created by a google')) {
+                continue;
+            }
+            
+            const parts = line.split(/\s{2,}|\t/); 
+            let name = '', course = '';
+            
+            if (parts.length >= 2) {
+                name = parts[0].trim();
+                course = parts[1].trim();
+            } else {
+                name = line.trim();
+            }
+            
+            if (name && name.length > 1) {
+                const key = name.toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    parsed.push({ name, course });
+                }
+            }
+        }
+    }
+    
+    return parsed;
+}
+
+let pendingSyncActions = { additions: [], updates: [], deletions: [] };
+
+function processSyncData(sheetStudents) {
+    const body = document.getElementById('syncModalBody');
+    
+    // Normalize lists
+    const currentStudentsMap = new Map();
+    students.forEach(s => {
+        currentStudentsMap.set(s.name.trim().toLowerCase(), s);
+    });
+
+    const sheetStudentsMap = new Map();
+    const sheetUnique = [];
+    sheetStudents.forEach(s => {
+        if (!s.name) return;
+        const key = s.name.trim().toLowerCase();
+        if (!sheetStudentsMap.has(key)) {
+            sheetStudentsMap.set(key, s);
+            sheetUnique.push(s);
+        }
+    });
+
+    // 1. Additions
+    const additions = [];
+    sheetUnique.forEach(s => {
+        const key = s.name.trim().toLowerCase();
+        if (!currentStudentsMap.has(key)) {
+            additions.push({
+                name: s.name.trim(),
+                course_name: s.course ? s.course.trim() : null
+            });
+        }
+    });
+
+    // 2. Updates
+    const updates = [];
+    sheetUnique.forEach(s => {
+        const key = s.name.trim().toLowerCase();
+        if (currentStudentsMap.has(key)) {
+            const existing = currentStudentsMap.get(key);
+            const sheetCourse = s.course ? s.course.trim() : '';
+            const dbCourse = existing.course_name ? existing.course_name.trim() : '';
+            if (sheetCourse !== dbCourse) {
+                updates.push({
+                    id: existing.id,
+                    name: existing.name,
+                    oldCourse: dbCourse || 'No course',
+                    newCourse: sheetCourse || null
+                });
+            }
+        }
+    });
+
+    // 3. Deletions
+    const deletions = [];
+    students.forEach(s => {
+        const key = s.name.trim().toLowerCase();
+        if (!sheetStudentsMap.has(key)) {
+            deletions.push({
+                id: s.id,
+                name: s.name,
+                course_name: s.course_name
+            });
+        }
+    });
+
+    pendingSyncActions = { additions, updates, deletions };
+
+    if (additions.length === 0 && updates.length === 0 && deletions.length === 0) {
+        body.innerHTML = `
+            <div style="text-align: center; padding: 40px 0;">
+                <span style="font-size: 3rem; display: block; margin-bottom: 16px;">✨</span>
+                <h4 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Already Perfect!</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary);">Your student list is already perfectly in sync with the Google Sheets Attendance System.</p>
+            </div>
+        `;
+        document.getElementById('syncModalFooter').style.display = 'none';
+        return;
+    }
+
+    let html = `
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+            We compared your database with the Google Sheets Attendance System. Select the changes you want to apply:
+        </p>
+    `;
+
+    // Render Additions Section
+    if (additions.length > 0) {
+        html += `
+            <div class="sync-section-title">
+                <span>➕</span> New Students Found (${additions.length})
+            </div>
+            <div class="sync-list">
+                ${additions.map((item, idx) => `
+                    <div class="sync-item">
+                        <div class="sync-item-left">
+                            <input type="checkbox" class="sync-item-checkbox" data-type="add" data-index="${idx}" checked>
+                            <div class="sync-item-info">
+                                <span class="sync-item-name">${esc(item.name)}</span>
+                                <span class="sync-item-details">Course: <strong>${esc(item.course_name || 'None')}</strong></span>
+                            </div>
+                        </div>
+                        <span class="sync-badge sync-badge-add">+ Add</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // Render Updates Section
+    if (updates.length > 0) {
+        html += `
+            <div class="sync-section-title" style="margin-top: 24px;">
+                <span>✏️</span> Course Updates (${updates.length})
+            </div>
+            <div class="sync-list">
+                ${updates.map((item, idx) => `
+                    <div class="sync-item">
+                        <div class="sync-item-left">
+                            <input type="checkbox" class="sync-item-checkbox" data-type="update" data-index="${idx}" checked>
+                            <div class="sync-item-info">
+                                <span class="sync-item-name">${esc(item.name)}</span>
+                                <span class="sync-item-details">Course change: <span style="text-decoration: line-through; color: var(--text-muted);">${esc(item.oldCourse)}</span> ➔ <strong>${esc(item.newCourse || 'None')}</strong></span>
+                            </div>
+                        </div>
+                        <span class="sync-badge sync-badge-update">Update</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // Render Deletions Section
+    if (deletions.length > 0) {
+        html += `
+            <div class="sync-section-title" style="margin-top: 24px; color: var(--danger);">
+                <span>🗑️</span> Missing from Sheets (${deletions.length})
+            </div>
+            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px; font-style: italic;">
+                These students exist in Supabase but are missing from Google Sheets. Checking these will delete them. Unchecked is recommended unless you are sure.
+            </p>
+            <div class="sync-list">
+                ${deletions.map((item, idx) => `
+                    <div class="sync-item" style="border-left: 3px solid var(--danger);">
+                        <div class="sync-item-left">
+                            <input type="checkbox" class="sync-item-checkbox" data-type="delete" data-index="${idx}">
+                            <div class="sync-item-info">
+                                <span class="sync-item-name">${esc(item.name)}</span>
+                                <span class="sync-item-details">Course: <strong>${esc(item.course_name || 'None')}</strong> (History will be lost!)</span>
+                            </div>
+                        </div>
+                        <span class="sync-badge sync-badge-delete">- Delete</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    body.innerHTML = html;
+    
+    // Show the confirm buttons
+    document.getElementById('syncModalFooter').style.display = 'flex';
+    document.getElementById('syncModalConfirm').disabled = false;
+    document.getElementById('syncModalConfirm').textContent = 'Sync Selected Changes';
+}
+
+async function executeSync() {
+    const confirmBtn = document.getElementById('syncModalConfirm');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<div class="sync-spinner" style="width: 16px; height: 16px; border-width: 2px; display: inline-block; vertical-align: middle; margin-right: 8px; animation: spin 1s linear infinite;"></div> Syncing...`;
+
+    // Read checkboxes
+    const checkboxes = document.querySelectorAll('.sync-item-checkbox');
+    const checkedAdditions = [];
+    const checkedUpdates = [];
+    const checkedDeletions = [];
+
+    checkboxes.forEach(cb => {
+        if (!cb.checked) return;
+        const type = cb.dataset.type;
+        const idx = parseInt(cb.dataset.index);
+
+        if (type === 'add') checkedAdditions.push(pendingSyncActions.additions[idx]);
+        else if (type === 'update') checkedUpdates.push(pendingSyncActions.updates[idx]);
+        else if (type === 'delete') checkedDeletions.push(pendingSyncActions.deletions[idx]);
+    });
+
+    if (checkedAdditions.length === 0 && checkedUpdates.length === 0 && checkedDeletions.length === 0) {
+        showToast('No changes selected to sync.', 'info');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Sync Selected Changes';
+        return;
+    }
+
+    try {
+        // 1. Create any missing courses in the `courses` table first
+        const newCourses = [...new Set(checkedAdditions.map(a => a.course_name).filter(Boolean))];
+        const existingCourseNames = courses.map(c => c.name.trim().toLowerCase());
+        
+        const coursesToCreate = newCourses.filter(name => !existingCourseNames.includes(name.trim().toLowerCase()));
+        
+        for (const courseName of coursesToCreate) {
+            await supaFetch('courses', { method: 'POST', body: { name: courseName } });
+        }
+
+        // 2. Perform additions
+        for (const item of checkedAdditions) {
+            await supaFetch('students', {
+                method: 'POST',
+                body: {
+                    name: item.name,
+                    course_name: item.course_name
+                }
+            });
+        }
+
+        // 3. Perform updates
+        for (const item of checkedUpdates) {
+            await supaFetch('students', {
+                method: 'PATCH',
+                query: `?id=eq.${item.id}`,
+                body: {
+                    course_name: item.newCourse
+                }
+            });
+        }
+
+        // 4. Perform deletions
+        for (const item of checkedDeletions) {
+            await supaFetch('students', {
+                method: 'DELETE',
+                query: `?id=eq.${item.id}`
+            });
+        }
+
+        showToast(`Successfully synchronized! Added ${checkedAdditions.length}, Updated ${checkedUpdates.length}, Deleted ${checkedDeletions.length} students.`, 'success');
+        hideSyncModal();
+        await loadAll();
+    } catch (e) {
+        console.error('Execute sync error:', e);
+        showToast('Sync failed: ' + e.message, 'error');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Sync Selected Changes';
+    }
+}
+
 // ===== Event Listeners =====
 document.addEventListener('DOMContentLoaded', () => {
     // Navigation
@@ -450,6 +885,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('addStudentBtn').addEventListener('click', () => { hideStudentForm(); showStudentForm(false); });
     document.getElementById('cancelStudentBtn').addEventListener('click', hideStudentForm);
     document.getElementById('saveStudentBtn').addEventListener('click', saveStudent);
+
+    // Sync Students Button & Modal Listeners
+    document.getElementById('syncStudentsBtn').addEventListener('click', showSyncModal);
+    document.getElementById('syncModalClose').addEventListener('click', hideSyncModal);
+    document.getElementById('syncModalCancel').addEventListener('click', hideSyncModal);
+    document.getElementById('syncModalConfirm').addEventListener('click', executeSync);
+    document.getElementById('syncModalOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) hideSyncModal(); });
 
     // Manage data
     document.getElementById('addCourseBtn').addEventListener('click', addCourse);
