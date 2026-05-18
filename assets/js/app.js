@@ -15,6 +15,7 @@ let students = [];
 let courses = [];
 let milestones = [];
 let monthlyUpdates = [];
+let classLogs = [];
 
 // ===== Helpers =====
 function getMonthKey(date) {
@@ -57,6 +58,7 @@ async function loadAll() {
             supaFetch('progress_milestones', { query: '?order=label.asc' }),
         ]);
         await loadMonthlyUpdates();
+        await loadClassLogs();
         renderAll();
     } catch (e) {
         console.error('Load error:', e);
@@ -67,6 +69,15 @@ async function loadAll() {
 async function loadMonthlyUpdates() {
     const mk = getMonthKey(currentMonth);
     monthlyUpdates = await supaFetch('monthly_updates', { query: `?month_year=eq.${mk}&select=*` });
+}
+
+async function loadClassLogs() {
+    const y = currentMonth.getFullYear();
+    const m = currentMonth.getMonth() + 1;
+    const startStr = `${y}-${String(m).padStart(2, '0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    classLogs = await supaFetch('class_logs', { query: `?date=gte.${startStr}&date=lte.${endStr}&order=date.desc` }) || [];
 }
 
 // ===== Initialize Month =====
@@ -120,6 +131,7 @@ function renderAll() {
     renderTracker();
     renderStudents();
     renderManageData();
+    renderWages();
     populateDropdowns();
 }
 
@@ -216,12 +228,103 @@ function renderTracker() {
             <td>${statusBadge || ''}</td>
             <td>
                 <div style="display:flex;gap:6px;">
+                    <button class="btn btn-sm btn-primary" title="Quick log 1h class" onclick="quickLogClass('${r.id}')">⏱️ +1h</button>
                     ${r.updateStatus !== 'updated' ? `<button class="btn btn-sm btn-success" onclick="setUpdateStatus('${r.id}','updated')">✅</button>` : ''}
                     ${r.updateStatus !== 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="setUpdateStatus('${r.id}','pending')">↩️</button>` : ''}
                 </div>
             </td>
         </tr>`;
     }).join('');
+}
+
+// ===== Wages / Class Records =====
+function renderWages() {
+    const tbody = document.getElementById('logsTableBody');
+    let totalHours = 0;
+    
+    if (classLogs.length === 0) {
+        tbody.innerHTML = '';
+        document.getElementById('logsEmpty').style.display = 'block';
+    } else {
+        document.getElementById('logsEmpty').style.display = 'none';
+        tbody.innerHTML = classLogs.map(log => {
+            totalHours += parseFloat(log.hours || 0);
+            const student = students.find(s => s.id === log.student_id);
+            const studentName = student ? student.name : 'Unknown Student';
+            const courseName = student ? (student.course_name || '-') : '-';
+            
+            return `<tr>
+                <td><strong>${esc(log.date)}</strong></td>
+                <td>${esc(studentName)}</td>
+                <td>${esc(courseName)}</td>
+                <td>${esc(log.hours)} hr</td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="deleteClassLog('${log.id}')">🗑️</button>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+    
+    const rate = parseFloat(document.getElementById('logRate').value || 35);
+    const totalWages = totalHours * rate;
+    
+    document.getElementById('statTotalHours').textContent = totalHours.toFixed(1);
+    document.getElementById('statTotalWages').textContent = 'RM ' + totalWages.toFixed(2);
+}
+
+function showLogForm() {
+    document.getElementById('addLogForm').style.display = 'block';
+    if(!document.getElementById('logDate').value) {
+        document.getElementById('logDate').value = new Date().toISOString().split('T')[0];
+    }
+}
+function hideLogForm() {
+    document.getElementById('addLogForm').style.display = 'none';
+    document.getElementById('logStudent').value = '';
+    document.getElementById('logHours').value = '';
+}
+
+async function saveClassLog() {
+    const date = document.getElementById('logDate').value;
+    const student_id = document.getElementById('logStudent').value;
+    const hours = document.getElementById('logHours').value;
+    
+    if (!date || !student_id || !hours) {
+        showToast('Please fill all fields', 'error');
+        return;
+    }
+    
+    try {
+        await supaFetch('class_logs', { method: 'POST', body: { date, student_id, hours: parseFloat(hours) } });
+        showToast('Class logged successfully!', 'success');
+        hideLogForm();
+        await loadAll();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+async function quickLogClass(studentId) {
+    const date = new Date().toISOString().split('T')[0];
+    const hours = 1;
+    
+    try {
+        await supaFetch('class_logs', { method: 'POST', body: { date, student_id: studentId, hours } });
+        showToast('Class logged successfully (1 hr)!', 'success');
+        await loadAll();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+function deleteClassLog(id) {
+    showModal('Delete this class record?', async () => {
+        try {
+            await supaFetch('class_logs', { method: 'DELETE', query: `?id=eq.${id}` });
+            showToast('Record deleted', 'success');
+            await loadAll();
+        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    });
 }
 
 // ===== Students Page =====
@@ -236,6 +339,7 @@ function renderStudents() {
             <div class="student-card-header">
                 <span class="student-card-name">${esc(s.name)}</span>
                 <div class="student-card-actions">
+                    <button class="btn btn-sm btn-primary" title="Quick log 1h class" onclick="quickLogClass('${s.id}')">⏱️ +1h</button>
                     <button class="btn btn-sm btn-secondary" onclick="editStudent('${s.id}')">✏️</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteStudent('${s.id}','${esc(s.name)}')">🗑️</button>
                 </div>
@@ -373,13 +477,19 @@ function populateDropdowns() {
     const uniqueCourses = [...new Set(students.map(s => s.course_name).filter(Boolean))];
     tcf.innerHTML = '<option value="all">All Courses</option>' + uniqueCourses.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     tcf.value = savedTcf;
+
+    // Log Class student filter
+    const lcf = document.getElementById('logStudent');
+    const savedLcf = lcf.value;
+    lcf.innerHTML = '<option value="">Select student...</option>' + students.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    lcf.value = savedLcf;
 }
 
 // ===== Navigation =====
 function navigateTo(page) {
     document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
-    const titles = { dashboard: ['Dashboard', 'Monthly update overview'], tracker: ['Update Tracker', 'Track which students have been updated'], students: ['Students', 'Manage student information'], manage: ['Manage Data', 'Courses & milestones'] };
+    const titles = { dashboard: ['Dashboard', 'Monthly update overview'], tracker: ['Update Tracker', 'Track which students have been updated'], students: ['Students', 'Manage student information'], wages: ['Class Records', 'Track class hours and calculate wages'], manage: ['Manage Data', 'Courses & milestones'] };
     const [t, s] = titles[page] || ['', ''];
     document.getElementById('pageTitle').textContent = t;
     document.getElementById('pageSubtitle').textContent = s;
@@ -885,6 +995,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('addStudentBtn').addEventListener('click', () => { hideStudentForm(); showStudentForm(false); });
     document.getElementById('cancelStudentBtn').addEventListener('click', hideStudentForm);
     document.getElementById('saveStudentBtn').addEventListener('click', saveStudent);
+
+    // Wages
+    document.getElementById('addLogBtn').addEventListener('click', showLogForm);
+    document.getElementById('cancelLogBtn').addEventListener('click', hideLogForm);
+    document.getElementById('saveLogBtn').addEventListener('click', saveClassLog);
+    document.getElementById('logRate').addEventListener('input', renderWages);
 
     // Sync Students Button & Modal Listeners
     document.getElementById('syncStudentsBtn').addEventListener('click', showSyncModal);
